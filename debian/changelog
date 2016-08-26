@@ -1,0 +1,5 @@
+indexed-gzip (0.1+git15-g7c15ec9.1-1) UNRELEASED; urgency=low
+
+  * Initial release (Closes: #835493).
+
+ -- Michael Hanke <mih@debian.org>  Fri, 26 Aug 2016 15:15:11 +0200

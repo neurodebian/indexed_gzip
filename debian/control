@@ -1,0 +1,48 @@
+Source: indexed-gzip
+Maintainer: NeuroDebian Team <team@neuro.debian.net>
+Uploaders: Michael Hanke <mih@debian.org>,
+           Alex Waite <Alexqw85@gmail.com>
+Section: python
+Testsuite: autopkgtest
+Priority: optional
+Build-Depends: debhelper (>= 9),
+               cython,
+               cython3,
+               dh-python,
+               python-all-dev,
+               python3-all-dev,
+               python-setuptools,
+               python3-setuptools,
+               python-numpy,
+               python3-numpy,
+               python-pytest,
+               python3-pytest,
+               python-pytest-runner,
+               python3-pytest-runner,
+Standards-Version: 3.9.8
+Homepage: https://github.com/pauldmccarthy/indexed_gzip
+X-Python-Version: >= 2.7
+
+Package: python-indexed-gzip
+Architecture: any
+Section: python
+Depends: cython,
+         ${misc:Depends},
+         ${shlibs:Depends},
+         ${python:Depends},
+Provides: ${python:Provides}
+Description: fast random access of gzip files in Python
+ .
+ This package provides the Python 2 module.
+
+Package: python3-indexed-gzip
+Architecture: any
+Section: python
+Depends: cython3,
+         ${misc:Depends},
+         ${shlibs:Depends},
+         ${python3:Depends},
+Provides: ${python3:Provides}
+Description: fast random access of gzip files in Python
+ .
+ This package provides the Python 3 module.

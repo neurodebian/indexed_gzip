@@ -1,0 +1,5 @@
+Test-Command: python setup.py test
+Depends: @, @builddeps@
+
+Test-Command: python3 setup.py test
+Depends: @, @builddeps@
