@@ -5,14 +5,28 @@
 # Author: Paul McCarthy <pauldmccarthy@gmail.com>
 #
 
+from __future__ import print_function
+
+import pytest
+
+import numpy as np
+
 from . import ctest_zran
 
-def setup_module():            ctest_zran.setup_module()
-def teardown_module():         ctest_zran.teardown_module()
 
-def test_init():               ctest_zran.test_init()
-def test_init_file_modes():    ctest_zran.test_init_file_modes()
-def test_seek_and_tell():      ctest_zran.test_seek_and_tell()
-def test_read_all():           ctest_zran.test_read_all()
-def test_seek_then_read_all(): ctest_zran.test_read_all()
-def test_build_then_read():    ctest_zran.test_build_then_read()
+pytestmark = pytest.mark.zran_test
+
+
+def test_init(                  testfile):                                 ctest_zran.test_init(                  testfile)
+def test_init_file_modes(       testfile):                                 ctest_zran.test_init_file_modes(       testfile)
+def test_no_auto_build(         testfile, nelems):                         ctest_zran.test_no_auto_build(         testfile, nelems)
+def test_seek_to_end(           testfile, nelems):                         ctest_zran.test_seek_to_end(           testfile, nelems)
+def test_seek_beyond_end(       testfile, nelems):                         ctest_zran.test_seek_beyond_end(       testfile, nelems)
+def test_sequential_seek_to_end(testfile, nelems, niters):                 ctest_zran.test_sequential_seek_to_end(testfile, nelems, niters)
+def test_random_seek(           testfile, nelems, niters, seed):           ctest_zran.test_random_seek(           testfile, nelems, niters, seed)
+def test_read_all(              testfile, nelems, use_mmap):               ctest_zran.test_read_all(              testfile, nelems, use_mmap)
+def test_seek_then_read_block(  testfile, nelems, niters, seed, use_mmap): ctest_zran.test_seek_then_read_block(  testfile, nelems, niters, seed, use_mmap)
+def test_random_seek_and_read(  testfile, nelems, niters, seed):           ctest_zran.test_random_seek_and_read(  testfile, nelems, niters, seed)
+def test_read_all_sequential(   testfile, nelems):                         ctest_zran.test_read_all_sequential(   testfile, nelems)
+def test_build_then_read(       testfile, nelems, seed, use_mmap):         ctest_zran.test_build_then_read(       testfile, nelems, seed, use_mmap)
+def test_readbuf_spacing_sizes( testfile, nelems, niters, seed):           ctest_zran.test_readbuf_spacing_sizes( testfile, nelems, niters, seed)

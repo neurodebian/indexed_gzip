@@ -32,7 +32,8 @@ enum {
   
 
 /* 
- * Struct representing the index.
+ * Struct representing the index. None of the fields in this struct 
+ * should ever need to be accessed or modified directly.
  */
 struct _zran_index {
 
@@ -46,6 +47,12 @@ struct _zran_index {
      * is calculated in zran_init.
      */
     size_t        compressed_size;
+
+    /*
+     * Size of the uncompressed data. This is
+     * only updated when it becomes known.
+     */
+    size_t        uncompressed_size;
     
     /* 
      * Spacing size in bytes, relative to the compressed 
@@ -59,6 +66,12 @@ struct _zran_index {
      * of 32768 bytes.
      */
     uint32_t      window_size;
+
+    /* 
+     * Base2 logarithm of the window size - it 
+     * is needed to initialise zlib inflation.
+     */ 
+    uint32_t      log_window_size;
 
     /*
      * Size, in bytes, of buffer used to store 
@@ -94,6 +107,34 @@ struct _zran_index {
      * Flags passed to zran_init
      */
     uint16_t      flags;
+
+    /* 
+     * All of the fields after this point are used 
+     * by the internal _zran_inflate function.
+     */
+
+    /*
+     * Reference to a file input 
+     * buffer of size readbuf_size.
+     */
+    uint8_t      *readbuf;
+
+    /*
+     * An offset into readbuf.
+     */
+    uint32_t      readbuf_offset;
+
+    /*
+     * The current end of the readbuf contents.
+     */
+    uint32_t      readbuf_end;
+
+    /* 
+     * Current offsets into the uncompressed and 
+     * compressed data streams.
+     */
+    uint64_t      inflate_cmp_offset;
+    uint64_t      inflate_uncmp_offset;
 };
 
 
@@ -184,6 +225,15 @@ int zran_build_index(
 );
 
 
+/* Return codes for zran_seek. */
+enum {
+    ZRAN_SEEK_FAIL        = -1,
+    ZRAN_SEEK_OK          =  0,
+    ZRAN_SEEK_NOT_COVERED =  1,
+    ZRAN_SEEK_EOF         =  2,
+};
+
+
 /*
  * Seek to the specified offset in the uncompressed data stream. 
  * If the index does not currently cover the offset, and it was 
@@ -196,12 +246,16 @@ int zran_build_index(
  * be equal to SEEK_SET or SEEK_CUR.
  *
  * Returns:
- *    - 0 for success.
+ *    - ZRAN_SEEK_OK for success.
  * 
- *    - < 0 to indicate failure.
+ *    - ZRAN_SEEK_FAIL to indicate failure of some sort.
  *   
- *    - > 0 to indicate that the index does not cover the requested 
- *        offset (will never happen if ZRAN_AUTO_BUILD is active).
+ *    - ZRAN_SEEK_NOT_COVERED to indicate that the index does not 
+ *      cover the requested offset (will never happen if 
+ *      ZRAN_AUTO_BUILD is active).
+
+ *    - ZRAN_SEEK_EOF to indicate that the requested offset
+ *      is past the end of the uncompressed stream. 
  */
 int zran_seek(
   zran_index_t  *index,   /* The index                      */
@@ -220,6 +274,12 @@ long zran_tell(
 );
 
   
+/* Return codes for zran_read. */
+enum {
+    ZRAN_READ_NOT_COVERED = -1,
+    ZRAN_READ_EOF         = -2,
+    ZRAN_READ_FAIL        = -3
+};
 
 /*
  * Read len bytes from the current location in the uncompressed 
@@ -229,15 +289,19 @@ long zran_tell(
  * Returns:
  *   - Number of bytes read for success.
  *   
- *   - -1 to indicate that the index does not cover the requested region
- *     (will never happen if ZRAN_AUTO_BUILD is active). 
+ *   - ZRAN_READ_NOT_COVERED to indicate that the index does not 
+ *     cover the requested region (will never happen if 
+ *     ZRAN_AUTO_BUILD is active). 
  *
- *   - < -1 to indicate failure.
+ *   - ZRAN_READ_EOF to indicate that the read could not be completed
+ *     because the current uncompressed seek point is at EOF.
+ *
+ *   - ZRAN_READ_FAIL to indicate that the read failed for some reason.
  */
-long zran_read(
+int64_t zran_read(
   zran_index_t  *index, /* The index                 */
   void          *buf,   /* Buffer to store len bytes */
-  size_t         len    /* Number of bytes to read   */
+  uint64_t       len    /* Number of bytes to read   */
 );
 
 #endif /* __ZRAN_H__ */
