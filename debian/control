@@ -6,6 +6,7 @@ Section: python
 Testsuite: autopkgtest
 Priority: optional
 Build-Depends: debhelper (>= 9),
+               zlib1g-dev,
                cython,
                cython3,
                dh-python,
