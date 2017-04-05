@@ -23,7 +23,7 @@ export PYBUILD_BEFORE_TEST=cp -vr {dir}/tests {build_dir}
 clean::
 	dh_clean
 	# hand clean generated C code
-	-rm indexed_gzip.c tests/ctest_zran.c
+	-rm indexed_gzip.c tests/*.c
 	# Ahhhhhhh!
 	rm -rf .pybuild build
 	-rm -rf indexed_gzip.egg-info/

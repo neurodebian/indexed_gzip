@@ -27,11 +27,22 @@ Package: python-indexed-gzip
 Architecture: any
 Section: python
 Depends: cython,
+         python-numpy,
          ${misc:Depends},
          ${shlibs:Depends},
          ${python:Depends},
 Provides: ${python:Provides}
 Description: fast random access of gzip files in Python
+ Drop-in replacement `IndexedGzipFile` for the built-in Python `gzip.GzipFile`
+ class that does not need to start decompressing from the beginning of the file
+ when for every `seek()`. It gets around this performance limitation by
+ building an index, which contains *seek points*, mappings between
+ corresponding locations in the compressed and uncompressed data streams. Each
+ seek point is accompanied by a chunk (32KB) of uncompressed data which is used
+ to initialise the decompression algorithm, allowing to start reading from
+ any seek point. If the index is built with a seek point spacing of 1MB,
+ only 512KB (on average) of data have to be decompressed to read from any location
+ in the file.
  .
  This package provides the Python 2 module.
 
@@ -39,10 +50,21 @@ Package: python3-indexed-gzip
 Architecture: any
 Section: python
 Depends: cython3,
+         python3-numpy,
          ${misc:Depends},
          ${shlibs:Depends},
          ${python3:Depends},
 Provides: ${python3:Provides}
 Description: fast random access of gzip files in Python
+ Drop-in replacement `IndexedGzipFile` for the built-in Python `gzip.GzipFile`
+ class that does not need to start decompressing from the beginning of the file
+ when for every `seek()`. It gets around this performance limitation by
+ building an index, which contains *seek points*, mappings between
+ corresponding locations in the compressed and uncompressed data streams. Each
+ seek point is accompanied by a chunk (32KB) of uncompressed data which is used
+ to initialise the decompression algorithm, allowing to start reading from
+ any seek point. If the index is built with a seek point spacing of 1MB,
+ only 512KB (on average) of data have to be decompressed to read from any location
+ in the file.
  .
  This package provides the Python 3 module.
