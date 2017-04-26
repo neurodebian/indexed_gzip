@@ -3,11 +3,12 @@ Upstream-Name: indexed_gzip
 Source: https://github.com/pauldmccarthy/indexed_gzip
 
 Files: *
-Copyright: 2016 Paul McCarthy <pauld.mccarthy@gmail.com>
+Copyright: 2016 Paul McCarthy <pauld.mccarthy@gmail.com>,
+           1995-2013 Jean-loup Gailly and Mark Adler
 License: zLIB
 
 Files: debian/*
-Copyright: 2016 Michael Hanke <mih@debian.org>,
+Copyright: 2016-2017 Michael Hanke <mih@debian.org>,
            Alex Waite <Alexqw85@gmail.com>
 License: zLIB
 

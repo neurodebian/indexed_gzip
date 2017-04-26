@@ -8,12 +8,13 @@ upstreamver = $(shell echo $(debver) | cut -d '-' -f 1,1 )
 # then described this commit relative to the last release tag (V...)
 # If this should make any sense the local upstream branch must track upstream's
 # master or whatever other source branch.
-gitver = $(shell [ -x /usr/bin/git ] && git describe --tags --match 'v[0-9].*' $$(git merge-base -a HEAD upstream) | sed -e 's/^v//' -e 's/-/+git/').1
+gitver = $(shell [ -x /usr/bin/git ] && git describe --tags --match 'v[0-9].*' $$(git merge-base -a HEAD upstream) | sed -e 's/^v//' -e 's/-/+git/')
 
 export DH_VERBOSE = 1
 export PYBUILD_NAME = indexed-gzip
 
 export PYBUILD_BEFORE_TEST=cp -vr {dir}/tests {build_dir}
+export PYBUILD_TEST_ARGS = --niter 1
 
 # one ring to rule them all ...
 %:
@@ -27,6 +28,11 @@ clean::
 	# Ahhhhhhh!
 	rm -rf .pybuild build
 	-rm -rf indexed_gzip.egg-info/
+
+override_dh_install:
+	dh_install
+	# tests leave a bit of trash behind
+	-find debian/ -name 'ctest_zran*.gz' -delete
 
 # make orig tarball from repository content
 get-orig-source:
