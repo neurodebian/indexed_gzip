@@ -5,7 +5,7 @@
 #
 
 from libc.stdio  cimport FILE
-from libc.stdint cimport uint16_t, uint32_t, uint64_t, int64_t
+from libc.stdint cimport uint8_t, uint16_t, uint32_t, uint64_t, int64_t
 from posix.types cimport off_t
 
 
@@ -13,7 +13,7 @@ cdef extern from "zran.h":
 
     ctypedef struct zran_index_t:
         pass
-    
+
     ctypedef struct zran_point_t:
         pass
 
@@ -34,7 +34,7 @@ cdef extern from "zran.h":
                    uint32_t      window_size,
                    uint32_t      readbuf_size,
                    uint16_t      flags)
-                  
+
     void zran_free(zran_index_t *index)
 
     bint zran_build_index(zran_index_t *index,
@@ -43,10 +43,10 @@ cdef extern from "zran.h":
 
     long zran_tell(zran_index_t *index);
 
-    int zran_seek(zran_index_t *index,
-                  off_t         offset,
-                  int           whence,
-                  zran_point_t *point) nogil;
+    int zran_seek(zran_index_t  *index,
+                  int64_t        offset,
+                  uint8_t        whence,
+                  zran_point_t **point) nogil;
 
     int64_t zran_read(zran_index_t *index,
                       void         *buf,
