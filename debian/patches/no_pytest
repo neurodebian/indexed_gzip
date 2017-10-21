@@ -8,11 +8,11 @@ index 9af7e6f..50a6c9c 100644
 \ No newline at end of file
 +#test=pytest
 diff --git a/setup.py b/setup.py
-index 9adae76..fed4e27 100644
+index 53ef934..da9132f 100644
 --- a/setup.py
 +++ b/setup.py
-@@ -127,7 +127,7 @@ setup(
-     
+@@ -189,7 +189,7 @@ setup(
+ 
      ext_modules=extensions,
  
 -    setup_requires=['pytest-runner'],
