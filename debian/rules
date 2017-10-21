@@ -13,26 +13,30 @@ gitver = $(shell [ -x /usr/bin/git ] && git describe --tags --match 'v[0-9].*' $
 export DH_VERBOSE = 1
 export PYBUILD_NAME = indexed-gzip
 
-export PYBUILD_BEFORE_TEST=cp -vr {dir}/tests {build_dir}
-export PYBUILD_TEST_ARGS = --niter 1
-
 # one ring to rule them all ...
 %:
 	dh $@ --with python2,python3 --buildsystem=pybuild
 
 
 clean::
+	python setup.py clean
 	dh_clean
-	# hand clean generated C code
-	-rm indexed_gzip.c tests/*.c
 	# Ahhhhhhh!
 	rm -rf .pybuild build
 	-rm -rf indexed_gzip.egg-info/
+	# tests leave a bit of trash behind
+	-rm ctest_*.gz
+
+# explicitely run the tests via distutils,as the maintainer appears to be
+# too stupid to understand how to get pybuild to not fail on test invocation
+override_dh_auto_test:
+	python2 setup.py test --addopts '--niter 1'
+	python3 setup.py test --addopts '--niter 1'
 
 override_dh_install:
 	dh_install
-	# tests leave a bit of trash behind
-	-find debian/ -name 'ctest_zran*.gz' -delete
+	# to get the ABI dependency
+	dh_numpy
 
 # make orig tarball from repository content
 get-orig-source:

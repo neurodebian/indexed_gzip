@@ -1,3 +1,12 @@
+indexed-gzip (0.6.1-1) unstable; urgency=medium
+
+  * New upstream release (missed several intermediate ones).
+  * Switch from seemingly fragile pybuild-directed test invocation
+    to directly running the tests via distutils.
+  * Call dh_numpy to get correct ABI dependency.
+
+ -- Michael Hanke <mih@debian.org>  Sat, 21 Oct 2017 09:19:15 +0200
+
 indexed-gzip (0.3.1-1) unstable; urgency=low
 
   * Initial release (Closes: #835493).
