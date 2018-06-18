@@ -1,7 +1,8 @@
 Source: indexed-gzip
 Maintainer: NeuroDebian Team <team@neuro.debian.net>
 Uploaders: Michael Hanke <mih@debian.org>,
-           Alex Waite <Alexqw85@gmail.com>
+           Alex Waite <Alexqw85@gmail.com>,
+           Yaroslav Halchenko <debian@onerussian.com>,
 Section: python
 Testsuite: autopkgtest
 Priority: optional
@@ -22,6 +23,8 @@ Build-Depends: debhelper (>= 9),
                python3-numpy,
 Standards-Version: 3.9.8
 Homepage: https://github.com/pauldmccarthy/indexed_gzip
+Vcs-Browser: https://github.com/neurodebian/indexed_gzip
+Vcs-Git: git://github.com/neurodebian/indexed_gzip -b debian
 X-Python-Version: >= 2.7
 
 Package: python-indexed-gzip

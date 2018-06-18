@@ -1,3 +1,11 @@
+indexed-gzip (0.8.5-1) unstable; urgency=medium
+
+  * New upstream release
+  * debian/control
+    - Added Vcs fields pointing to github fork/repository
+
+ -- Yaroslav Halchenko <debian@onerussian.com>  Mon, 18 Jun 2018 16:50:14 +0800
+
 indexed-gzip (0.6.1-1) unstable; urgency=medium
 
   * New upstream release (missed several intermediate ones).
