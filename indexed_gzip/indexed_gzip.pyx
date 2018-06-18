@@ -1,3 +1,4 @@
+# cython: binding=True,embedsignature=True
 #
 # The IndexedGzipFile class.
 #
@@ -32,6 +33,8 @@ from cpython.buffer cimport (PyObject_GetBuffer,
 cimport indexed_gzip.zran as zran
 
 import io
+import warnings
+import contextlib
 import threading
 import logging
 
@@ -41,30 +44,37 @@ log.setLevel(logging.WARNING)
 
 
 class NotCoveredError(Exception):
-    """Exception raised by the :class:`IndexedGzipFile` when an attempt is
+    """Exception raised by the :class:`_IndexedGzipFile` when an attempt is
     made to seek to/read from a location that is not covered by the
-    index. This exception will never be raised if the ``IndexedGzipFile`` was
+    index. This exception will never be raised if the ``_IndexedGzipFile`` was
     created with ``auto_build=True``.
     """
     pass
 
 
 class ZranError(Exception):
-    """Exception raised by the :class:`IndexedGzipFile` when the ``zran``
+    """Exception raised by the :class:`_IndexedGzipFile` when the ``zran``
     library signals an error.
     """
     pass
 
 
-cdef class IndexedGzipFile:
-    """The ``IndexedGzipFile`` class allows for fast random access of a gzip
+class NoHandleError(Exception):
+    """Exception raised by the :class:`_IndexedGzipFile` when
+    ``drop_handles is True`` and an attempt is made to access the underlying
+    file object.
+    """
+
+
+cdef class _IndexedGzipFile:
+    """The ``_IndexedGzipFile`` class allows for fast random access of a gzip
     file by using the ``zran`` library to build and maintain an index of seek
     points into the file.
 
     .. note:: The :meth:`seek` and :meth:`read` methods release the GIL while
-              calling ``zran`` functions, but the ``IndexedGzipFile`` is *not*
-              thread-safe. Use the ``SafeIndexedGzipFile`` class if you need
-              thread-safety.
+              calling ``zran`` functions, but the ``_IndexedGzipFile`` is *not*
+              thread-safe. Use the ``IndexedGzipFile`` class (i.e. without the
+              leading underscore) if you need thread-safety.
     """
 
 
@@ -72,48 +82,60 @@ cdef class IndexedGzipFile:
     """A reference to the ``zran_index`` struct. """
 
 
-    cdef bint auto_build
+    cdef readonly bint auto_build
     """Flag which is set to ``True`` if the file index is built automatically
     on seeks/reads.
     """
 
-    cdef unsigned int readall_buf_size
+
+    cdef readonly unsigned int readall_buf_size
     """Used by meth:`read` as the read buffer size."""
 
 
-    cdef bint own_file
-    """Flag which is set to ``True`` if the user specified a file name instead
-    of an open file handle. In this case, the IndexedGzipFile is responsible
-    for closing the file handle when it is destroyed.
+    cdef readonly object filename
+    """String containing path of file being indexed. Used to release and
+    reopen file handles between seeks and reads.
+    Set to ``None`` if file handle is passed.
     """
 
 
-    cdef FILE *cfid
-    """A reference to the C file handle. """
+    cdef readonly bint drop_handles
+    """Copy of the ``drop_handles`` flag as passed to :meth:`__cinit__`. """
 
 
     cdef object pyfid
     """A reference to the python file handle. """
 
 
+    cdef bint finalized
+    """Flag which is set to ``True`` if the ``_IndexedGzipFile`` has been
+    closed. Further operations will fail if ``True``.
+    """
+
+
     def __cinit__(self,
                   filename=None,
                   fid=None,
+                  fileobj=None,
                   mode=None,
                   auto_build=True,
                   spacing=4194304,
                   window_size=32768,
                   readbuf_size=1048576,
-                  readall_buf_size=16777216):
-        """Create an ``IndexedGzipFile``. The file may be specified either
-        with an open file handle, or with a filename. If the former, the file
-        must have been opened in ``'rb'`` mode.
+                  readall_buf_size=16777216,
+                  drop_handles=True,
+                  index_file=None):
+        """Create an ``_IndexedGzipFile``. The file may be specified either
+        with an open file handle (``fileobj``), or with a ``filename``. If the
+        former, the file must have been opened in ``'rb'`` mode.
 
         :arg filename:         File name.
 
         :arg mode:             Opening mode. Must be either ``'r'`` or ``'rb``.
 
-        :arg fid:              Open file handle.
+        :arg fileobj:          Open file handle.
+
+        :arg fid:              Deprecated, use ``fileobj`` instead.
 
         :arg auto_build:       If ``True`` (the default), the index is
                                automatically built on seeks/reads.
@@ -126,67 +148,149 @@ cdef class IndexedGzipFile:
         :arg readbuf_size:     Size of buffer in bytes for storing compressed
                                data read in from the file.
 
-
         :arg readall_buf_size: Size of buffer in bytes used by :meth:`read`
                                when reading until EOF.
+
+        :arg drop_handles:     Has no effect if an open ``fid`` is specified,
+                               rather than a ``filename``.  If ``True`` (the
+                               default), a handle to the file is opened and
+                               closed on every access. Otherwise the file is
+                               opened at ``__cinit__``, and kept open until
+                               this ``_IndexedGzipFile`` is destroyed.
+
+        :arg index_file:       Pre-generated index for this ``gz`` file -
+                               if provided, passed through to
+                               :meth:`import_index`.
         """
 
-        if fid is None and filename is None:
-            raise ValueError('One of fid or filename must be specified')
+        if fid is not None:
+            warnings.warn('fid is deprecated - use fileobj instead',
+                          DeprecationWarning)
 
-        if fid is not None and fid.mode != 'rb':
+        if fid is not None and fileobj is None:
+            fileobj = fid
+            fid     = None
+
+        if (fileobj is     None and filename is     None) or \
+           (fileobj is not None and fid      is not None) or \
+           (fileobj is not None and filename is not None):
+            raise ValueError('One of fileobj or filename must be specified')
+
+        if fileobj is not None and fileobj.mode != 'rb':
             raise ValueError('The gzip file must be opened in '
                              'read-only binary ("rb") mode')
 
-        if (fid is None) and (mode not in (None, 'r', 'rb')):
+        if (fileobj is None) and (mode not in (None, 'r', 'rb')):
             raise ValueError('Invalid mode ({}), must be '
                              '\'r\' or \'rb\''.format(mode))
+
         mode = 'rb'
 
-        self.own_file         = fid is None
+        # if file is specified with an open
+        # file handle, drop_handles is ignored
+        if fileobj is not None:
+            drop_handles = False
+
+        # if not drop_handles, we open a
+        # file handle and keep it open for
+        # the lifetime of this object.
+        if fileobj is None and not drop_handles:
+            fileobj = open(filename, mode)
+
         self.auto_build       = auto_build
         self.readall_buf_size = readall_buf_size
-
-        if self.own_file: self.pyfid = open(filename, 'rb')
-        else:             self.pyfid = fid
-
-        self.cfid = fdopen(self.pyfid.fileno(), 'rb')
+        self.drop_handles     = drop_handles
+        self.filename         = filename
+        self.pyfid            = fileobj
+        self.index.fd         = NULL
 
         if self.auto_build: flags = zran.ZRAN_AUTO_BUILD
         else:               flags = 0
 
-        if zran.zran_init(index=&self.index,
-                          fd=self.cfid,
-                          spacing=spacing,
-                          window_size=window_size,
-                          readbuf_size=readbuf_size,
-                          flags=flags):
-            raise ZranError('zran_init returned error')
+        with self.__file_handle():
+            if zran.zran_init(index=&self.index,
+                              fd=self.index.fd,
+                              spacing=spacing,
+                              window_size=window_size,
+                              readbuf_size=readbuf_size,
+                              flags=flags):
+                raise ZranError('zran_init returned error')
 
-        log.debug('{}.__init__({}, {}, {}, {}, {}, {})'.format(
+        log.debug('{}.__init__({}, {}, {}, {}, {}, {}, {})'.format(
             type(self).__name__,
-            fid,
+            fileobj,
             filename,
             auto_build,
             spacing,
             window_size,
-            readbuf_size))
+            readbuf_size,
+            drop_handles))
+
+        if index_file is not None:
+            self.import_index(index_file)
 
 
     def __init__(self, *args, **kwargs):
         """This method does nothing. It is here to make sub-classing
-        ``IndexedGzipFile`` easier.
+        ``_IndexedGzipFile`` easier.
         """
         pass
 
 
+    @contextlib.contextmanager
+    def __file_handle(self):
+        """This method is used as a context manager whenever access to the
+        underlying file stream is required. It makes sure that the ``pyfid``
+        and ``index.fd`` fields are set appropriately, opening/closing
+        the file handle as necessary (depending on the value of
+        :attr:`drop_handles`).
+        """
+
+        # If a file handle already exists,
+        # return it. This clause makes this
+        # context manager reentrant.
+        if self.index.fd is not NULL:
+            yield
+
+        # if not drop_handles, then
+        # we assume that pyfid holds
+        # a ref to a python file
+        # object
+        elif not self.drop_handles:
+            if self.index.fd is NULL:
+                self.index.fd = fdopen(self.pyfid.fileno(), 'rb')
+            yield
+
+        # otherwise we open a new
+        # file handle on each access
+        else:
+
+            try:
+                with open(self.filename, 'rb') as pyfid:
+                    self.pyfid    = pyfid
+                    self.index.fd = fdopen(pyfid.fileno(), 'rb')
+                    yield
+
+            finally:
+                self.pyfid    = None
+                self.index.fd = NULL
+
+
     def fileno(self):
-        """Calls ``fileno`` on the underlying file object. """
+        """Calls ``fileno`` on the underlying file object. Raises a
+        :exc:`NoHandleError` if ``drop_handles is True``.
+        """
+        if self.drop_handles:
+            raise NoHandleError()
         return self.pyfid.fileno()
 
 
     def fileobj(self):
-        """Returns a reference to the python file object. """
+        """Returns a reference to the python file object. Raises a
+        :exc:`NoHandleError` if ``drop_handles is True``.
+        """
+        if self.drop_handles:
+            raise NoHandleError()
         return self.pyfid
 
 
@@ -199,46 +303,44 @@ cdef class IndexedGzipFile:
 
 
     def close(self):
-        """Closes this ``IndexedGzipFile``. """
+        """Closes this ``_IndexedGzipFile``. """
 
         if self.closed:
-            raise IOError('IndexedGzipFile is already closed')
+            raise IOError('_IndexedGzipFile is already closed')
 
         zran.zran_free(&self.index)
 
-        if self.own_file:
-            self.pyfid.close()
-
-        self.cfid  = NULL
-        self.pyfid = None
+        self.filename  = None
+        self.pyfid     = None
+        self.finalized = True
 
         log.debug('{}.close()'.format(type(self).__name__))
 
 
     @property
     def closed(self):
-        """Returns ``True`` if this ``IndexedGzipFile`` is closed, ``False``
+        """Returns ``True`` if this ``_IndexedGzipFile`` is closed, ``False``
         otherwise.
         """
-        return self.pyfid is None
+        return self.finalized
 
 
     def readable(self):
-        """Returns ``True`` if this ``IndexedGzipFile`` is readable, ``False``
+        """Returns ``True`` if this ``_IndexedGzipFile`` is readable, ``False``
         otherwise.
         """
         return not self.closed
 
 
     def writable(self):
-        """Currently always returns ``False`` - the ``IndexedGzipFile`` does
+        """Currently always returns ``False`` - the ``_IndexedGzipFile`` does
         not support writing yet.
         """
         return False
 
 
     def seekable(self):
-        """Returns ``True`` if this ``IndexedGzipFile`` supports seeking,
+        """Returns ``True`` if this ``_IndexedGzipFile`` supports seeking,
         ``False`` otherwise.
         """
         return not self.closed
@@ -251,18 +353,18 @@ cdef class IndexedGzipFile:
 
 
     def __enter__(self):
-        """Returns this ``IndexedGzipFile``. """
+        """Returns this ``_IndexedGzipFile``. """
         return self
 
 
     def __exit__(self, *args):
-        """Calls close on this ``IndexedGzipFile``. """
+        """Calls close on this ``_IndexedGzipFile``. """
         if not self.closed:
             self.close()
 
 
     def __dealloc__(self):
-        """Frees the memory used by this ``IndexedGzipFile``. If a file name
+        """Frees the memory used by this ``_IndexedGzipFile``. If a file name
         was passed to :meth:`__cinit__`, the file handle is closed.
         """
         if not self.closed:
@@ -272,16 +374,19 @@ cdef class IndexedGzipFile:
     def build_full_index(self):
         """Re-builds the full file index. """
 
-        if zran.zran_build_index(&self.index, 0, 0) != 0:
+        with self.__file_handle():
+            ret = zran.zran_build_index(&self.index, 0, 0)
+
+        if ret != 0:
             raise ZranError('zran_build_index returned error')
 
-        log.debug('{}.build_fuill_index()'.format(type(self).__name__))
+        log.debug('{}.build_full_index()'.format(type(self).__name__))
 
 
     def seek(self, offset, whence=SEEK_SET):
         """Seeks to the specified position in the uncompressed data stream.
 
-        If this ``IndexedGzipFile`` was created with ``auto_build=False``,
+        If this ``_IndexedGzipFile`` was created with ``auto_build=False``,
         and the requested offset is not covered by the index, a
         :exc:`NotCoveredError` is raised.
 
@@ -297,14 +402,14 @@ cdef class IndexedGzipFile:
         """
 
         cdef int                ret
-        cdef uint64_t           off      = offset
+        cdef int64_t            off      = offset
         cdef uint8_t            c_whence = whence
         cdef zran.zran_index_t *index    = &self.index
 
         if whence not in (SEEK_SET, SEEK_CUR):
             raise ValueError('Seek from end not supported')
 
-        with nogil:
+        with self.__file_handle(), nogil:
             ret = zran.zran_seek(index, off, c_whence, NULL)
 
         if ret < 0:
@@ -352,7 +457,7 @@ cdef class IndexedGzipFile:
             buffer = <char *>buf.buffer + offset
 
             # read some bytes
-            with nogil:
+            with self.__file_handle(), nogil:
                 ret = zran.zran_read(index, buffer, bufsz)
 
             # see how the read went
@@ -414,11 +519,11 @@ cdef class IndexedGzipFile:
         # by the provided buf
         PyObject_GetBuffer(buf, &pbuf, PyBUF_SIMPLE | PyBUF_ANY_CONTIGUOUS)
 
-        # read soem bytes
+        # read some bytes
         try:
 
             vbuf = <void *>pbuf.buf
-            with nogil:
+            with self.__file_handle(), nogil:
                 ret = zran.zran_read(index, vbuf, bufsz)
 
         # release the py_buffer
@@ -453,8 +558,9 @@ cdef class IndexedGzipFile:
         """Seeks to the specified ``offset``, then reads and returns
         ``nbytes``. See :meth:`seek` and :meth:`read`.
         """
-        IndexedGzipFile.seek(self, offset)
-        return IndexedGzipFile.read(self, nbytes)
+        with self.__file_handle():
+            self.seek(offset)
+            return self.read(nbytes)
 
 
     def readline(self, size=-1):
@@ -472,37 +578,38 @@ cdef class IndexedGzipFile:
         bufsz    = 1024
 
         # Read in chunks of [bufsz] bytes at a time
-        while True:
+        with self.__file_handle():
+            while True:
 
-            buf = self.read(bufsz)
+                buf = self.read(bufsz)
 
-            lineidx  = buf.find(b'\n')
-            haveline = lineidx  >= 0
-            eof      = len(buf) == 0
+                lineidx  = buf.find(b'\n')
+                haveline = lineidx  >= 0
+                eof      = len(buf) == 0
 
-            # Are we at EOF? Nothing more to do
-            if eof:
-                break
+                # Are we at EOF? Nothing more to do
+                if eof:
+                    break
 
-            # Have we found a line? Discard
-            # everything that comes after it
-            if haveline:
-                linebuf = linebuf + buf[:lineidx + 1]
+                # Have we found a line? Discard
+                # everything that comes after it
+                if haveline:
+                    linebuf = linebuf + buf[:lineidx + 1]
 
-            # If we've found a line, and are
-            # not size-limiting, we're done
-            if haveline and size < 0:
-                break
+                # If we've found a line, and are
+                # not size-limiting, we're done
+                if haveline and size < 0:
+                    break
 
-            # If we're size limiting, and have
-            # read in enough bytes, we're done
-            if size >= 0 and len(linebuf) > size:
-                linebuf = linebuf[:size]
-                break
+                # If we're size limiting, and have
+                # read in enough bytes, we're done
+                if size >= 0 and len(linebuf) > size:
+                    linebuf = linebuf[:size]
+                    break
 
-        # Rewind the seek location
-        # to the finishing point
-        self.seek(startpos + len(linebuf))
+            # Rewind the seek location
+            # to the finishing point
+            self.seek(startpos + len(linebuf))
 
         return linebuf
 
@@ -516,24 +623,25 @@ cdef class IndexedGzipFile:
         totalsize = 0
         lines     = []
 
-        while True:
+        with self.__file_handle():
+            while True:
 
-            line = self.readline()
-            if line == b'':
-                break
+                line = self.readline()
+                if line == b'':
+                    break
 
-            lines.append(line)
+                lines.append(line)
 
-            totalsize += len(line)
+                totalsize += len(line)
 
-            if hint >= 0 and totalsize > hint:
-                break
+                if hint >= 0 and totalsize > hint:
+                    break
 
         return lines
 
 
     def __iter__(self):
-        """Returns this ``IndexedGzipFile`` which can be iterated over to
+        """Returns this ``_IndexedGzipFile`` which can be iterated over to
         return lines (separated by ``'\n'``) in the uncompressed stream.
         """
         return self
@@ -553,12 +661,96 @@ cdef class IndexedGzipFile:
 
     def write(self, *args, **kwargs):
         """Currently raises a :exc:`NotImplementedError`."""
-        raise NotImplementedError('IndexedGzipFile does not support writing')
+        raise NotImplementedError('_IndexedGzipFile does not support writing')
 
 
     def flush(self):
         """Currently does nothing. """
         pass
+
+
+    def export_index(self, filename=None, fileobj=None):
+        """Export index data to the given file. Either ``filename`` or
+        ``fileobj`` should be specified, but not both. ``fileobj`` should be
+        opened in 'wb' mode.
+
+        :arg filename: Name of the file.
+        :arg fileobj:  Open file handle.
+        """
+
+        if filename is None and fileobj is None:
+            raise ValueError('One of filename or fileobj must be specified')
+
+        if filename is not None and fileobj is not None:
+            raise ValueError(
+                'Only one of filename or fileobj must be specified')
+
+        if filename is not None:
+            fileobj = open(filename, 'wb')
+            close_file = True
+
+        else:
+            close_file = False
+            if fileobj.mode != 'wb':
+                raise ValueError(
+                    'File should be opened write-only binary mode.')
+
+        try:
+            fd  = fdopen(fileobj.fileno(), 'ab')
+            ret = zran.zran_export_index(&self.index, fd)
+            if ret != zran.ZRAN_EXPORT_OK:
+                raise ZranError('export_index returned error: {}', ret)
+
+        finally:
+            if close_file:
+                fileobj.close()
+
+        log.debug('{}.export_index({}, {})'.format(
+            type(self).__name__,
+            filename,
+            fileobj))
+
+
+    def import_index(self, filename=None, fileobj=None):
+        """Import index data from the given file. Either ``filename`` or
+        ``fileobj`` should be specified, but not both. ``fileobj`` should be
+        opened in 'rb' mode.
+
+        :arg filename: Name of the file.
+        :arg fileobj:  Open file handle.
+        """
+
+        if filename is None and fileobj is None:
+            raise ValueError('One of filename or fileobj must be specified')
+
+        if filename is not None and fileobj is not None:
+            raise ValueError(
+                'Only one of filename or fileobj must be specified')
+
+        if filename is not None:
+            fileobj    = open(filename, 'rb')
+            close_file = True
+
+        else:
+            close_file = False
+            if fileobj.mode != 'rb':
+                raise ValueError(
+                    'File should be opened read-only binary mode.')
+
+        try:
+            fd  = fdopen(fileobj.fileno(), 'rb')
+            ret = zran.zran_import_index(&self.index, fd)
+            if ret != zran.ZRAN_IMPORT_OK:
+                raise ZranError('import_index returned error: {}', ret)
+
+        finally:
+            if close_file:
+                fileobj.close()
+
+        log.debug('{}.import_index({}, {})'.format(
+            type(self).__name__,
+            filename,
+            fileobj))
 
 
 cdef class ReadBuffer:
@@ -611,11 +803,12 @@ cdef class ReadBuffer:
         log.debug('ReadBuffer.__dealloc__()')
 
 
-class SafeIndexedGzipFile(io.BufferedReader):
-    """The ``SafeIndexedGzipFile`` is an ``io.BufferedReader`` which wraps
-    an :class:`IndexedGzipFile` instance. By accessing the ``IndexedGzipFile``
-    instance through an ``io.BufferedReader``, read performance is improved
-    through buffering, and access to the I/O methods is made thread-safe.
+class IndexedGzipFile(io.BufferedReader):
+    """The ``IndexedGzipFile`` is an ``io.BufferedReader`` which wraps
+    an :class:`_IndexedGzipFile` instance. By accessing the
+    ``_IndexedGzipFile`` instance through an ``io.BufferedReader``, read
+    performance is improved through buffering, and access to the I/O methods
+    is made thread-safe.
 
     A :meth:`pread` method is also implemented, as it is not implemented by
     the ``io.BufferedReader``.
@@ -623,21 +816,28 @@ class SafeIndexedGzipFile(io.BufferedReader):
 
 
     def __init__(self, *args, **kwargs):
-        """Opens an ``IndexedGzipFile``, and then calls
+        """Opens an ``_IndexedGzipFile``, and then calls
         ``io.BufferedReader.__init__``.
 
         :arg buffer_size: Optional, must be passed as a keyword argument.
                           Passed through to ``io.BufferedReader.__init__``.
                           If not provided, a default value of 1048576 is used.
 
-        All other arguments are passed through to ``IndezedGzipFile.__init__``.
+        All other arguments are passed through to
+        ``_IndezedGzipFile.__init__``.
         """
 
         buffer_size     = kwargs.pop('buffer_size', 1048576)
-        fobj            = IndexedGzipFile(*args, **kwargs)
+        fobj            = _IndexedGzipFile(*args, **kwargs)
         self.__fileLock = threading.RLock()
 
-        io.BufferedReader.__init__(self, fobj, buffer_size)
+        self.build_full_index = fobj.build_full_index
+        self.import_index     = fobj.import_index
+        self.export_index     = fobj.export_index
+        self.fileobj          = fobj.fileobj
+        self.drop_handles     = fobj.drop_handles
+
+        super(IndexedGzipFile, self).__init__(fobj, buffer_size)
 
 
     def pread(self, nbytes, offset):
@@ -647,3 +847,13 @@ class SafeIndexedGzipFile(io.BufferedReader):
         with self.__fileLock:
             self.seek(offset)
             return self.read(nbytes)
+
+
+class SafeIndexedGzipFile(IndexedGzipFile):
+    """Deprecated - use :class:`IndexedGzipFile` instead. """
+    def __init__(self, *args, **kwargs):
+        """Deprecated - use :class:`IndexedGzipFile` instead. """
+        warnings.warn('SafeIndexedGzilFile is deprecated - '
+                      'use IndexedGzipFile instead',
+                      DeprecationWarning)
+        super(SafeIndexedGzipFile, self).__init__(*args, **kwargs)

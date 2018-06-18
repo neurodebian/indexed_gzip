@@ -31,9 +31,9 @@ fi
 
 export PATH=/mypython/bin:$PATH
 
-pip install numpy pytest cython
+pip install cython numpy pytest coverage pytest-cov
 
 cd /indexed_gzip
 python setup.py develop
-python setup.py test --addopts "-v -s --niters 500";
-python setup.py test --addopts "-v -s --niters 500 --concat";
+pytest -v -s --niters 500
+pytest -v -s --niters 500 --concat

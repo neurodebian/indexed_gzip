@@ -3,6 +3,8 @@
 
 [![Build Status](https://travis-ci.org/pauldmccarthy/indexed_gzip.svg?branch=master)](https://travis-ci.org/pauldmccarthy/indexed_gzip)
 
+[![PyPi version](https://img.shields.io/pypi/v/indexed_gzip.svg)](https://pypi.python.org/pypi/indexed_gzip/)
+
 
  *Fast random access of gzip files in Python*
 
@@ -10,6 +12,9 @@
  * [Overview](#overview)
  * [Installation](#installation)
  * [Usage](#usage)
+ * [Using with `nibabel`](#using-with-nibabel)
+ * [Index import/export](#index-import-export)
+ * [Write support](#write-support)
  * [Performance](#performance)
  * [Acknowledgements](#acknowledgements)
  * [License](#license)
@@ -55,16 +60,16 @@ pip install indexed_gzip
 ```
 
 To compile `indexed_gzip`, make sure you have [cython](http://cython.org/)
-installed, and then run:
+installed (and `numpy` if you want to compile the tests), and then run:
 ```sh
-python setup.py build_ext --inplace
+python setup.py develop
 ```
 
 
 To run the tests, type the following; you will need `numpy` and `pytest`
 installed:
 ```sh
-python setup.py test
+pytest
 ```
 
 ## Usage
@@ -81,7 +86,7 @@ import indexed_gzip as igzip
 # handle. For the latter use, the file handle
 # must be opened in read-only binary mode.
 # Write support is currently non-existent.
-myfile = igzip.IndexedGzipFile(filename='big_file.gz')
+myfile = igzip.IndexedGzipFile('big_file.gz')
 
 some_offset_into_uncompressed_data = 234195
 
@@ -93,14 +98,40 @@ data = myfile.read(1048576)
 ```
 
 
-Or you can use `indexed_gzip` with `nibabel`:
+## Using with `nibabel`
+
+
+You can use `indexed_gzip` with `nibabel`. `nibabel` >= 2.3.0 will
+automatically use `indexed_gzip` if it is present:
+
+
+```python
+import nibabel as nib
+
+image = nib.load('big_image.nii.gz')
+```
+
+
+If you are using `nibabel` 2.2.x, you need to explicitly set the `keep_file_open`
+flag:
+
+
+```python
+import nibabel as nib
+
+image = nib.load('big_image.nii.gz', keep_file_open='auto')
+```
+
+
+To use `indexed_gzip` with `nibabel` 2.1.0 or older, you need to do a little
+more work:
 
 
 ```python
 import nibabel      as nib
 import indexed_gzip as igzip
 
-# Here we are usin 4MB spacing between
+# Here we are using 4MB spacing between
 # seek points, and using a larger read
 # buffer (than the default size of 16KB).
 fobj = igzip.IndexedGzipFile(
@@ -121,15 +152,48 @@ vol3 = image.dataobj[:, :, :, 3]
 ```
 
 
+## Index import/export
+
+
+If you have a large file, you may wish to pre-generate the index once, and
+save it out to an index file:
+
+
+```python
+import indexed_gzip as igzip
+
+# Load the file, pre-generate the
+# index, and save it out to disk.
+fobj = igzip.IndexedGzipFile('big_file.gz')
+fobj.build_full_index()
+fobj.export_index('big_file.gzidx')
+```
+
+
+The next time you open the same file, you can load in the index:
+
+
+```python
+import indexed_gip as igzip
+fobj = igzip.IndexedGzipFile('big_file.gz', index_file='big_file.gzidx')
+```
+
+
+## Write support
+
+
 `indexed_gzip` does not currently have any support for writing. Currently if you
 wish to write to a file, you will need to save the file by alternate means (e.g.
 via `gzip` or `nibabel`), and then re-create a new `IndexedGzipFile` instance.
-Building on the `nibabel` example above:
+For example:
 
 
 ```python
 
+import nibabel as nib
+
 # Load the entire image into memory
+image = nib.load('big_image.nii.gz')
 data = image.get_data()
 
 # Make changes to the data
@@ -138,33 +202,30 @@ data[:, :, :, 5] *= 100
 # Save the image using nibabel
 nib.save(data, 'big_image.nii.gz')
 
-# Re-create an IndexedGzipFile and
-# Nifti1Image instance as above
-fobj = igzip.IndexedGzipFile(...)
-fmap = nib.Nifti1Image.make_file_map()
-fmap['image'].fileobj = fobj
-image = nib.Nifti1Image.from_file_map(fmap)
+# Re-load the image
+image = nib.load('big_image.nii.gz')
 ```
 
 
 ## Performance
 
 
-A small [test script](benchmark_indexed_gzip.py) is included with `indexed_gzip`;
-this script compares the performance of the `IndexedGzipFile` class with the
-`gzip.GzipFile` class. This script does the following:
+A small [test script](indexed_gzip/tests/benchmark.py) is included with
+`indexed_gzip`; this script compares the performance of the `IndexedGzipFile`
+class with the `gzip.GzipFile` class. This script does the following:
 
+  1. Generates a test file.
 
-  1. Generates a specified number of seek locations, uniformly spaced
-     throughout the input file.
+  2. Generates a specified number of seek locations, uniformly spaced
+     throughout the test file.
 
-  2. Randomly shuffles these locations
+  3. Randomly shuffles these locations
 
-  3. Seeks to each location, and reads a chunk of data from the file.
+  4. Seeks to each location, and reads a chunk of data from the file.
 
 
 This plot shows the results of this test for a few compresed files of varying
-sizes, with 1000 seeks:
+sizes, with 500 seeks:
 
 
 ![Indexed gzip performance](./performance.png)
@@ -195,8 +256,12 @@ Initial work on `indexed_gzip` took place at
 University of Oxford, UK.
 
 
-Many thanks to Martin Craig (@mcraig-ibme) for help in porting `indexed_gzip`
-to Windows.
+Many thanks to the following contributors (listed chronologically):
+
+ - Zalan Rajna (@zrajna): bug fixes (#2)
+ - Martin Craig (@mcraig-ibme): porting `indexed_gzip` to Windows (#3)
+ - Chris Markiewicz (@effigies): Option to drop file handles (#6)
+ - Omer Ozarslan (@ozars): Index import/export (#8)
 
 
 ## License
