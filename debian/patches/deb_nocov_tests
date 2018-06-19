@@ -1,0 +1,26 @@
+From: Yaroslav Halchenko <debian@onerussian.com>
+Subject: Disable coverage while running tests
+
+ 
+Origin: NeuroDebian
+Last-Update: 2018-06-19
+
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -3,4 +3,4 @@ test=pytest
+ 
+ [tool:pytest]
+ testpaths = indexed_gzip/tests
+-addopts   = -v --cov=indexed_gzip
+\ No newline at end of file
++addopts   = -v
+--- a/setup.py
++++ b/setup.py
+@@ -217,6 +217,6 @@ setup(
+ 
+     ext_modules=extensions,
+ 
+-    tests_require=['pytest', 'numpy', 'coverage', 'pytest-cov'],
++    tests_require=['pytest', 'numpy'], # debian-disabled: 'coverage', 'pytest-cov'],
+     test_suite='tests',
+ )

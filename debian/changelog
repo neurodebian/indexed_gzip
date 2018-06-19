@@ -3,6 +3,9 @@ indexed-gzip (0.8.5-1) unstable; urgency=medium
   * New upstream release
   * debian/control
     - Added Vcs fields pointing to github fork/repository
+  * debian/patches/deb_nocov_tests
+    - disabled coverage during tests, no need and this way lightens up
+      depends
 
  -- Yaroslav Halchenko <debian@onerussian.com>  Mon, 18 Jun 2018 16:50:14 +0800
 
