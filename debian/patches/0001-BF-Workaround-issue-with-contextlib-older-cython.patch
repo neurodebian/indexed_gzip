@@ -1,0 +1,89 @@
+From 1f4b230b09cef4bfe8812e9c750774890fd65c4b Mon Sep 17 00:00:00 2001
+From: Paul McCarthy <pauldmccarthy@gmail.com>
+Date: Tue, 26 Jun 2018 15:49:01 +0100
+Subject: [PATCH] BF: Workaround issue with contextlib+older cython
+
+---
+ indexed_gzip/indexed_gzip.pyx | 57 ++++++++++++++++++-----------------
+ 1 file changed, 30 insertions(+), 27 deletions(-)
+
+diff --git a/indexed_gzip/indexed_gzip.pyx b/indexed_gzip/indexed_gzip.pyx
+index 383cf26..ddccfe5 100644
+--- a/indexed_gzip/indexed_gzip.pyx
++++ b/indexed_gzip/indexed_gzip.pyx
+@@ -237,7 +237,6 @@ cdef class _IndexedGzipFile:
+         pass
+ 
+ 
+-    @contextlib.contextmanager
+     def __file_handle(self):
+         """This method is used as a context manager whenever access to the
+         underlying file stream is required. It makes sure that the ``pyfid``
+@@ -246,34 +245,38 @@ cdef class _IndexedGzipFile:
+         :attr:`drop_handles`).
+         """
+ 
+-        # If a file handle already exists,
+-        # return it. This clause makes this
+-        # context manager reentrant.
+-        if self.index.fd is not NULL:
+-            yield
+-
+-        # if not drop_handles, then
+-        # we assume that pyfid holds
+-        # a ref to a python file
+-        # object
+-        elif not self.drop_handles:
+-            if self.index.fd is NULL:
+-                self.index.fd = fdopen(self.pyfid.fileno(), 'rb')
+-            yield
+-
+-        # otherwise we open a new
+-        # file handle on each access
+-        else:
+-
+-            try:
+-                with open(self.filename, 'rb') as pyfid:
+-                    self.pyfid    = pyfid
+-                    self.index.fd = fdopen(pyfid.fileno(), 'rb')
++        @contextlib.contextmanager
++        def proxy():
++
++            # If a file handle already exists,
++            # return it. This clause makes this
++            # context manager reentrant.
++            if self.index.fd is not NULL:
++                yield
++
++            # if not drop_handles, then
++            # we assume that pyfid holds
++            # a ref to a python file
++            # object
++            elif not self.drop_handles:
++                if self.index.fd is NULL:
++                    self.index.fd = fdopen(self.pyfid.fileno(), 'rb')
+                     yield
+ 
+-            finally:
+-                self.pyfid    = None
+-                self.index.fd = NULL
++            # otherwise we open a new
++            # file handle on each access
++            else:
++                try:
++                    with open(self.filename, 'rb') as pyfid:
++                        self.pyfid    = pyfid
++                        self.index.fd = fdopen(pyfid.fileno(), 'rb')
++                        yield
++
++                finally:
++                    self.pyfid    = None
++                    self.index.fd = NULL
++
++        return proxy()
+ 
+ 
+     def fileno(self):
+-- 
+2.17.0
+
