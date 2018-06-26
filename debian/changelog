@@ -2,6 +2,9 @@ indexed-gzip (0.8.5-2) unstable; urgency=medium
 
   * debian/patches/0001-BF-Workaround-issue-with-contextlib-older-cython.patch
     for compatibility with older cython
+  * debian/patches/control
+    - added  Restrictions: allow-stderr  to allow stderr output in the tests.
+      Kudos to Paul Gevers for the detailed bug report!  (Closes: #901764)
 
  -- Yaroslav Halchenko <debian@onerussian.com>  Tue, 26 Jun 2018 11:20:56 -0400
 
