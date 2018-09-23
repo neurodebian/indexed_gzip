@@ -24,7 +24,7 @@ Build-Depends: debhelper (>= 9),
 Standards-Version: 3.9.8
 Homepage: https://github.com/pauldmccarthy/indexed_gzip
 Vcs-Browser: https://github.com/neurodebian/indexed_gzip
-Vcs-Git: git://github.com/neurodebian/indexed_gzip -b debian
+Vcs-Git: https://github.com/neurodebian/indexed_gzip -b debian
 X-Python-Version: >= 2.7
 
 Package: python-indexed-gzip
