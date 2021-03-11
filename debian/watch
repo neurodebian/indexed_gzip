@@ -1,3 +1,0 @@
-version=3
-opts="filenamemangle=s/.*\/v(\d)\.(\d).*/indexed_gzip-$1.$2\.tar\.gz/" \
-  http://github.com/pauldmccarthy/indexed_gzip/tags .*archive/v(\d[\d.]+).tar.gz

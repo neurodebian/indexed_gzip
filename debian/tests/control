@@ -1,7 +1,0 @@
-Test-Command: python setup.py test
-Depends: @, @builddeps@
-Restrictions: allow-stderr
-
-Test-Command: python3 setup.py test
-Depends: @, @builddeps@
-Restrictions: allow-stderr
